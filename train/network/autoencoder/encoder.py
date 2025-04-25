@@ -75,10 +75,11 @@ class Encoder(nn.Module):
         z : (optional) residual information. torch.tensor w/ shape(B, frame, z_units)
     """
 
-    def __init__(self, config):
+    def __init__(self, config, device=None):
         super().__init__()
 
         self.config = config
+        self.device = device
         self.hop_length = int(config.sample_rate * config.frame_resolution)
 
         self.loudness_extractor = LoudnessExtractor(

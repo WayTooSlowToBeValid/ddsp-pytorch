@@ -86,10 +86,11 @@ class Decoder(nn.Module):
         H : noise filter in frequency domain. torch.tensor w/ shape(B, frame_num, filter_coeff_length)
     """
 
-    def __init__(self, config):
+    def __init__(self, config, device = None):
         super().__init__()
 
         self.config = config
+        self.device = device
 
         self.mlp_f0 = MLP(n_input=1, n_units=config.mlp_units, n_layer=config.mlp_layers)
         self.mlp_loudness = MLP(n_input=1, n_units=config.mlp_units, n_layer=config.mlp_layers)

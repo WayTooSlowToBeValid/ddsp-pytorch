@@ -16,7 +16,7 @@ class LoudnessExtractor(nn.Module):
                  sr = 16000,
                  frame_length = 64,
                  attenuate_gain = 2.,
-                 device = 'cuda'):
+                 device = None):
         
         super(LoudnessExtractor, self).__init__()
 
@@ -78,13 +78,16 @@ class LoudnessExtractor(nn.Module):
         sliced_signal = paded_input_signal.unfold(1, self.n_fft, self.frame_length)
         sliced_windowed_signal = sliced_signal * self.smoothing_window
         
-        SLICED_SIGNAL = torch.rfft(sliced_windowed_signal, 1, onesided = False)
-        
+        #SLICED_SIGNAL = torch.rfft(sliced_windowed_signal, 1, onesided = False) #Needed to be changed - By Fabio / Recommended by ChatGPT
+        SLICED_SIGNAL = torch.fft.rfft(sliced_windowed_signal)
         SLICED_SIGNAL_LOUDNESS_SPECTRUM = torch.zeros(SLICED_SIGNAL.shape[:-1])
-        SLICED_SIGNAL_LOUDNESS_SPECTRUM = SLICED_SIGNAL[:, :, :, 0] ** 2 + SLICED_SIGNAL[:, :, :, 1] ** 2
+        #SLICED_SIGNAL_LOUDNESS_SPECTRUM = SLICED_SIGNAL[:, :, :, 0] ** 2 + SLICED_SIGNAL[:, :, :, 1] ** 2 #Needed to be changed - By Fabio / Recommended by ChatGPT
+        SLICED_SIGNAL_LOUDNESS_SPECTRUM = SLICED_SIGNAL.abs() ** 2
                 
         freq_bin_size = self.sr / self.n_fft
-        FREQUENCIES = torch.tensor([(freq_bin_size * i) % (0.5 * self.sr) for i in range(self.n_fft)]).to(self.device)
+        n_freq = self.n_fft // 2 + 1 # Added, here was nothing before.
+        FREQUENCIES = torch.tensor([freq_bin_size * i for i in range(n_freq)], device=self.device) #New
+        #FREQUENCIES = torch.tensor([(freq_bin_size * i) % (0.5 * self.sr) for i in range(self.n_fft)]).to(self.device) #Needed to be changed due to mismacht caused by modernization - By Fabio / Recommended by ChatGPT
         A_WEIGHTS = self.torch_A_weighting(FREQUENCIES)
         
         A_WEIGHTED_SLICED_SIGNAL_LOUDNESS_SPECTRUM = SLICED_SIGNAL_LOUDNESS_SPECTRUM * A_WEIGHTS

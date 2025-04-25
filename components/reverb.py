@@ -12,7 +12,7 @@ import torch.nn as nn
 
 
 class TrainableFIRReverb(nn.Module):
-    def __init__(self, reverb_length=48000, device="cuda"):
+    def __init__(self, reverb_length=48000, device=None):
 
         super(TrainableFIRReverb, self).__init__()
 
@@ -51,7 +51,8 @@ class TrainableFIRReverb(nn.Module):
         # Appropriate zero padding is required for linear convolution.
         input_signal = z["audio_synth"]
         zero_pad_input_signal = nn.functional.pad(input_signal, (0, self.fir.shape[-1] - 1))
-        INPUT_SIGNAL = torch.rfft(zero_pad_input_signal, 1)
+        #INPUT_SIGNAL = torch.rfft(zero_pad_input_signal, 1) #Modernized by Fabio
+        INPUT_SIGNAL = torch.fft.rfft(zero_pad_input_signal)
 
         # Build decaying impulse response and send it to frequency domain.
         # Appropriate zero padding is required for linear convolution.
@@ -77,17 +78,23 @@ class TrainableFIRReverb(nn.Module):
         )
         zero_pad_final_fir = nn.functional.pad(final_fir, (0, input_signal.shape[-1] - 1))
 
-        FIR = torch.rfft(zero_pad_final_fir, 1)
+        #FIR = torch.rfft(zero_pad_final_fir, 1) Modernized by Fabio
+        FIR = torch.fft.rfft(zero_pad_final_fir)
 
         # Convolve and inverse FFT to get original signal.
-        OUTPUT_SIGNAL = torch.zeros_like(INPUT_SIGNAL).to(self.device)
-        OUTPUT_SIGNAL[:, :, 0] = (
-            INPUT_SIGNAL[:, :, 0] * FIR[:, :, 0] - INPUT_SIGNAL[:, :, 1] * FIR[:, :, 1]
-        )
-        OUTPUT_SIGNAL[:, :, 1] = (
-            INPUT_SIGNAL[:, :, 0] * FIR[:, :, 1] + INPUT_SIGNAL[:, :, 1] * FIR[:, :, 0]
-        )
+        # Manual Mult no needed anymore - by Fabio
+        #OUTPUT_SIGNAL = torch.zeros_like(INPUT_SIGNAL).to(self.device)
+        #OUTPUT_SIGNAL[:, :, 0] = (
+        #    INPUT_SIGNAL[:, :, 0] * FIR[:, :, 0] - INPUT_SIGNAL[:, :, 1] * FIR[:, :, 1]
+        #)
+        #OUTPUT_SIGNAL[:, :, 1] = (
+        #    INPUT_SIGNAL[:, :, 0] * FIR[:, :, 1] + INPUT_SIGNAL[:, :, 1] * FIR[:, :, 0]
+        #)
 
-        output_signal = torch.irfft(OUTPUT_SIGNAL, 1)
+        OUTPUT_SIGNAL = INPUT_SIGNAL * FIR
 
+        #output_signal = torch.irfft(OUTPUT_SIGNAL, 1) Modernized by Fabio
+        output_signal = torch.fft.irfft(OUTPUT_SIGNAL, n=zero_pad_input_signal.shape[-1])
         return output_signal
+    
+    

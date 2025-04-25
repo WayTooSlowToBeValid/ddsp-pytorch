@@ -11,7 +11,7 @@ import torch.nn as nn
 
 
 class HarmonicOscillator(nn.Module):
-    def __init__(self, sr=16000, frame_length=64, attenuate_gain=0.02, device="cuda"):
+    def __init__(self, sr=16000, frame_length=64, attenuate_gain=0.02, device=None):
         super(HarmonicOscillator, self).__init__()
         self.sr = sr
         self.frame_length = frame_length
@@ -26,7 +26,7 @@ class HarmonicOscillator(nn.Module):
     def forward(self, z):
 
         """
-        Compute Addictive Synthesis
+        Compute Additive Synthesis
         Argument: 
             z['f0'] : fundamental frequency envelope for each sample
                 - dimension (batch_num, frame_rate_time_samples)

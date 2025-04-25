@@ -9,7 +9,7 @@ from network.autoencoder.encoder import Encoder
 
 
 class AutoEncoder(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, device=None):
         """
         encoder_config
                 use_z=False, 
@@ -35,22 +35,24 @@ class AutoEncoder(nn.Module):
                 hop_length
         """
         super().__init__()
-
-        self.decoder = Decoder(config)
-        self.encoder = Encoder(config)
+        self.config = config
+        self.device = device
+        self.decoder = Decoder(config, device=device)
+        self.encoder = Encoder(config, device=device)
 
         hop_length = frame_length = int(config.sample_rate * config.frame_resolution)
 
         self.harmonic_oscillator = HarmonicOscillator(
-            sr=config.sample_rate, frame_length=hop_length
+            sr=config.sample_rate, frame_length=hop_length, device=device,
+            attenuate_gain=0.02 # FIXME: calculate correct value for loudness matching -Chris
         )
 
-        self.filtered_noise = FilteredNoise(frame_length=hop_length)
+        self.filtered_noise = FilteredNoise(frame_length=hop_length, device=device)
 
-        self.reverb = TrainableFIRReverb(reverb_length=config.sample_rate * 3)
+        self.reverb = TrainableFIRReverb(reverb_length=config.sample_rate * 3, device=device)
 
         self.crepe = None
-        self.config = config
+        #self.config = config
 
     def forward(self, batch, add_reverb=True):
         """

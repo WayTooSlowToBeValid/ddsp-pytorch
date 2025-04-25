@@ -24,7 +24,7 @@ parser.add_argument("--input", default=".wav")
 parser.add_argument("--output", default="output.wav")
 parser.add_argument("--ckpt", default=".pth")
 parser.add_argument("--config", default=".yaml")
-parser.add_argument("--wave_length", default=16000)
+parser.add_argument("--wave_length", type=int, default=16000)
 args = parser.parse_args()
 
 y, sr = torchaudio.load(args.input, num_frames=None if args.wave_length == 0 else args.wave_length)
@@ -36,9 +36,12 @@ if sr != config.sample_rate:
     y = resampler(y)
 
 print("File :", args.input, "Loaded")
-
-net = AutoEncoder(config).cuda()
-net.load_state_dict(torch.load(args.ckpt))
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+net = AutoEncoder(config, device=device).to(device)
+print(f"Using device: {device}")
+net.load_state_dict(torch.load(args.ckpt, map_location=device), strict=False)  # also important!
+#net = AutoEncoder(config).cuda() this was before. Since use supposed to be on CPU I changed - By Fabio
+#net.load_state_dict(torch.load(args.ckpt))
 net.eval()
 
 print("Network Loaded")
@@ -46,12 +49,18 @@ print("Network Loaded")
 recon = net.reconstruction(y)
 
 dereverb = recon["audio_synth"].cpu()
-torchaudio.save(
-    os.path.splitext(args.output)[0] + "_synth.wav", dereverb, sample_rate=config.sample_rate
-)
+# Ensure the shape is (1, num_samples)
+if dereverb.ndim == 1:
+    dereverb = dereverb.unsqueeze(0)  # Now it's (1, 16000)
+
+torchaudio.save(os.path.splitext(args.output)[0] + "_synth.wav", dereverb, sample_rate=config.sample_rate)
 
 if config.use_reverb:
     recon_add_reverb = recon["audio_reverb"].cpu()
+    print("recon_add_reverb shape before save:", recon_add_reverb.shape)
+    print("recon_add_reverb ndim: ", recon_add_reverb.ndim)
+    if recon_add_reverb.ndim == 1:
+        recon_add_reverb = recon_add_reverb.unsqueeze(0)
     torchaudio.save(
         os.path.splitext(args.output)[0] + "_reverb.wav",
         recon_add_reverb,

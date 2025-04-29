@@ -14,7 +14,8 @@ import torchaudio
 import os, sys
 
 sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../")
-from network.autoencoder.autoencoder import AutoEncoder
+from network.autoencoder.autoencoder import AutoEncoder as AutoEncoderOld
+from network.autoencoder_new.autoencoder_new import AutoEncoder
 from omegaconf import OmegaConf
 
 import argparse
@@ -22,6 +23,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--input", default=".wav")
 parser.add_argument("--output", default="output.wav")
+parser.add_argument("--script_output", default="output.pt")
 parser.add_argument("--ckpt", default=".pth")
 parser.add_argument("--config", default=".yaml")
 parser.add_argument("--wave_length", type=int, default=16000)
@@ -36,22 +38,34 @@ if sr != config.sample_rate:
     y = resampler(y)
 
 print("File :", args.input, "Loaded")
-#device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 device = torch.device("cpu")
-net = AutoEncoder(config, device=device).to(device)
-print(f"Using device: {device}")
-state_dict = torch.load(args.ckpt, map_location=device)
-#print(state_dict)
-print("Keys in the state_dict:", state_dict.keys())
-net.load_state_dict(torch.load(args.ckpt, map_location=device), strict=False)  # also important!
+print(f"Using device: {device}") #Quick Check if CPU is used (should since hard coded)
+newNet = AutoEncoder(config, device=device).to(device)
 
-#net = AutoEncoder(config).cuda() this was before. Since use supposed to be on CPU I changed - By Fabio
-#net.load_state_dict(torch.load(args.ckpt))
-net.eval()
+
+newNet.load_state_dict(torch.load(args.ckpt, map_location=device), strict=False)  # also important!
+
+
+
+newNet.eval()
+#newNet = AutoEncoder(config).cuda() this was before. Since use supposed to be on CPU I changed - By Fabio
+#newNet.load_state_dict(torch.load(args.ckpt))
 
 print("Network Loaded")
 
-recon = net.reconstruction(y)
+#-----
+# In toScript.py (modify the example_input)
+# Calculate hop_length based on config
+try:
+    print("Trying scripting instead...")
+    scripted_net = torch.jit.script(newNet)  # Script the entire module, not just `reconstruction`
+    scripted_net.save(args.script_output)
+except Exception as e:
+    print(e)
+
+#-------
+
+recon = newNet.reconstruction(y)
 
 dereverb = recon["audio_synth"].to(device)
 #dereverb = recon["audio_synth"].cpu

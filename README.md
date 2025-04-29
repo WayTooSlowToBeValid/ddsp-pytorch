@@ -56,6 +56,19 @@ python test.py\
 --wave_length 16000
 ```
 
+## How to script the model
+
+```bash
+cd train
+python toScript.py\ 
+--input input.wav\
+--output output.wav\
+--script_output script_output.pt
+--ckpt trained_weight.pth\
+--config config/your-config.yaml\
+--wave_length 16000
+```
+
 ## Download pretrained weight file ###
 > [download](https://github.com/sweetcocoa/ddsp-pytorch/raw/models/weight.zip)
 

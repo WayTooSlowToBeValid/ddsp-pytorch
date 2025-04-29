@@ -6,8 +6,11 @@ TODO :
 """
 
 import numpy as np
+import math #standard in python (should be script-safe)
 import torch
 import torch.nn as nn
+from torch import Tensor
+from typing import Dict
 
 
 class HarmonicOscillator(nn.Module):
@@ -23,7 +26,7 @@ class HarmonicOscillator(nn.Module):
             scale_factor=self.frame_length, mode="linear", align_corners=False
         )
 
-    def forward(self, z):
+    def forward(self, z: Dict[str, Tensor]) -> Tensor:
 
         """
         Compute Addictive Synthesis
@@ -35,22 +38,26 @@ class HarmonicOscillator(nn.Module):
             z['a'] : loudness of entire sound for each sample
                 - dimension (batch_num, frame_rate_time_samples)
         Returns:
-            addictive_output : synthesized sinusoids for each sample 
+            additive_output : synthesized sinusoids for each sample 
                 - dimension (batch_num, audio_rate_time_samples)
         """
 
         fundamentals = z["f0"]
+        #print(f"fundamentals.shape before squeeze: {fundamentals.shape}")
+        fundamentals = fundamentals.squeeze(-1).squeeze(-1)  # Remove last two singleton dims
+        #print(f"fundamentals.shape after squeeze: {fundamentals.shape}")
+        
+        if fundamentals.dim() == 2:
+            fundamentals = fundamentals.unsqueeze(-1)
+
         framerate_c_bank = z["c"]
 
         num_osc = framerate_c_bank.shape[1]
 
         # Build a frequency envelopes of each partials from z['f0'] data
-        partial_mult = (
-            torch.linspace(1, num_osc, num_osc, dtype=torch.float32).unsqueeze(-1).to(self.device)
-        )
-        framerate_f0_bank = (
-            fundamentals.unsqueeze(-1).expand(-1, -1, num_osc).transpose(1, 2) * partial_mult
-        )
+        partial_mult = torch.linspace(1, num_osc, num_osc, dtype=torch.float32, device=self.device).unsqueeze(-1)
+
+        framerate_f0_bank = (fundamentals.expand(-1, -1, num_osc).transpose(1, 2) * partial_mult)
 
         # Antialias z['c']
         mask_filter = (framerate_f0_bank < self.sr / 2).float()
@@ -65,12 +72,12 @@ class HarmonicOscillator(nn.Module):
 
         # Build harmonic sinusoid bank and sum to build harmonic sound
         sinusoid_bank = (
-            torch.sin(2 * np.pi * audiorate_phase_bank) * audiorate_a_bank * self.attenuate_gain
+            torch.sin(2 * math.pi * audiorate_phase_bank) * audiorate_a_bank * self.attenuate_gain
         )
 
         framerate_loudness = z["a"]
         audiorate_loudness = self.framerate_to_audiorate(framerate_loudness.unsqueeze(0)).squeeze(0)
 
-        addictive_output = torch.sum(sinusoid_bank, 1) * audiorate_loudness
+        additive_output = torch.sum(sinusoid_bank, 1) * audiorate_loudness
 
-        return addictive_output
+        return additive_output

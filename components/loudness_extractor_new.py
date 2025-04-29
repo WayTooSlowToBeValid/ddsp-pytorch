@@ -9,6 +9,8 @@ TODO :
 import numpy as np
 import torch
 import torch.nn as nn
+from typing import Dict #Added for forward
+from torch import Tensor
 
 
 class LoudnessExtractor(nn.Module):
@@ -20,13 +22,13 @@ class LoudnessExtractor(nn.Module):
         
         super(LoudnessExtractor, self).__init__()
        
-     
+        """
         # Pre-register constant tensors as buffers
         self.register_buffer("const", torch.tensor([12200, 20.6, 107.7, 737.9], device=device) ** 2.0) #
         self.register_buffer("min_db_tensor", torch.tensor([min_db], dtype=torch.float32, device=device))#
         self.register_buffer("log10", torch.log(torch.tensor([10.], dtype=torch.float32, device=device)))#
         # Add other tensors like FREQUENCIES here if needed
-
+        """
         self.sr = sr
         self.frame_length = frame_length
         self.n_fft = self.frame_length * 5
@@ -38,7 +40,7 @@ class LoudnessExtractor(nn.Module):
 
     
 
-    def torch_A_weighting(self, FREQUENCIES, min_db = -45.0):
+    def torch_A_weighting(self, FREQUENCIES: torch.Tensor, min_db: float = -45.0) -> torch.Tensor:
         """
         Compute A-weighting weights in Decibel scale (codes from librosa) and 
         transform into amplitude domain (with DB-SPL equation).
@@ -54,7 +56,7 @@ class LoudnessExtractor(nn.Module):
         
         # Calculate A-weighting in Decibel scale.
         FREQUENCY_SQUARED = FREQUENCIES ** 2 
-        const = torch.tensor([12200, 20.6, 107.7, 737.9]) ** 2.0
+        const = torch.tensor([12200.0, 20.6, 107.7, 737.9], dtype=torch.float32) ** 2.0
         WEIGHTS_IN_DB = 2.0 + 20.0 * (torch.log10(const[0]) + 4 * torch.log10(FREQUENCIES)
                                - torch.log10(FREQUENCY_SQUARED + const[0])
                                - torch.log10(FREQUENCY_SQUARED + const[1])
@@ -71,7 +73,8 @@ class LoudnessExtractor(nn.Module):
         return weights
 
         
-    def forward(self, z):
+    #def forward(self, z):
+    def forward(self, audio:Tensor) -> Tensor:
         """
         Compute A-weighted Loudness Extraction
         Input:
@@ -80,7 +83,7 @@ class LoudnessExtractor(nn.Module):
             output_signal : batch of reverberated signals
         """
         
-        input_signal = z['audio']
+        input_signal = audio
         paded_input_signal = nn.functional.pad(input_signal, (self.frame_length * 2, self.frame_length * 2))
         sliced_signal = paded_input_signal.unfold(1, self.n_fft, self.frame_length)
         sliced_windowed_signal = sliced_signal * self.smoothing_window

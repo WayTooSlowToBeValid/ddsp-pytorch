@@ -5,6 +5,8 @@ Implementation of decoder network architecture of DDSP.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor #Tensor now defined
+from typing import Optional #z is optional and COULD be left out. 
 
 
 class MLP(nn.Module):
@@ -32,51 +34,29 @@ class MLP(nn.Module):
         self.n_input = n_input
         self.n_units = n_units
         self.inplace = inplace
-        """
+
         self.layers = nn.ModuleList()
 
         self.layers.append(nn.Sequential(
             nn.Linear(n_input, n_units),
-            nn.ReLU()
+            nn.LayerNorm(n_units),
+            relu(inplace = self.inplace)
         ))
         for _ in range(n_layer - 1):
             self.layers.append(nn.Sequential(
-                nn.Linear(n_input, n_units),
-                nn.ReLU()
+                nn.Linear(n_units, n_units),
+                nn.LayerNorm(n_units),
+                relu(inplace = self.inplace)
             ))
+  
 
-        """    
-       
-        self.add_module(
-            f"mlp_layer1",
-            nn.Sequential(
-                nn.Linear(n_input, n_units),
-                nn.LayerNorm(normalized_shape=n_units),
-                relu(inplace=self.inplace),
-            ),
-        )
-
-        for i in range(2, n_layer + 1):
-            self.add_module(
-                f"mlp_layer{i}",
-                nn.Sequential(
-                    nn.Linear(n_units, n_units),
-                    nn.LayerNorm(normalized_shape=n_units),
-                    relu(inplace=self.inplace),
-                ),
-            )
         
     def forward(self, x):
 
-       
-        for i in range(1, self.n_layer + 1):
-            x = self.__getattr__(f"mlp_layer{i}")(x)
-        return x
-        """  
         for layer in self.layers:
             x = layer(x)
         return x
-        """
+    
 
 class Decoder(nn.Module):
     """
@@ -106,42 +86,42 @@ class Decoder(nn.Module):
         H : noise filter in frequency domain. torch.tensor w/ shape(B, frame_num, filter_coeff_length)
     """
 
-    def __init__(self, config, device = None):
+    def __init__(self, use_z: bool, mlp_layers: int, mlp_units: int, gru_units: int, bidirectional: bool, n_harmonics: int, n_freq: int, z_units: int, device):
         super().__init__()
 
-        self.config = config
         self.device = device
-
-        self.mlp_f0 = MLP(n_input=1, n_units=config.mlp_units, n_layer=config.mlp_layers)
-        self.mlp_loudness = MLP(n_input=1, n_units=config.mlp_units, n_layer=config.mlp_layers)
-        if config.use_z:
+        self.use_z = use_z
+        self.mlp_f0 = MLP(n_input=1, n_units=mlp_units, n_layer=mlp_layers)
+        self.mlp_loudness = MLP(n_input=1, n_units=mlp_units, n_layer=mlp_layers)
+        if use_z:
             self.mlp_z = MLP(
-                n_input=config.z_units, n_units=config.mlp_units, n_layer=config.mlp_layers
+                n_input=z_units, n_units=mlp_units, n_layer=mlp_layers
             )
             self.num_mlp = 3
         else:
             self.num_mlp = 2
+            self.mlp_z = nn.Identity()
 
         self.gru = nn.GRU(
-            input_size=self.num_mlp * config.mlp_units,
-            hidden_size=config.gru_units,
+            input_size=self.num_mlp * mlp_units,
+            hidden_size=gru_units,
             num_layers=1,
             batch_first=True,
-            bidirectional=config.bidirectional,
+            bidirectional=bidirectional,
         )
 
         self.mlp_gru = MLP(
-            n_input=config.gru_units * 2 if config.bidirectional else config.gru_units,
-            n_units=config.mlp_units,
-            n_layer=config.mlp_layers,
+            n_input=gru_units * 2 if bidirectional else gru_units,
+            n_units=mlp_units,
+            n_layer=mlp_layers,
             inplace=True,
         )
 
         # one element for overall loudness
-        self.dense_harmonic = nn.Linear(config.mlp_units, config.n_harmonics + 1)
-        self.dense_filter = nn.Linear(config.mlp_units, config.n_freq)
+        self.dense_harmonic = nn.Linear(mlp_units, n_harmonics + 1)
+        self.dense_filter = nn.Linear(mlp_units, n_freq)
 
-    def forward(self, batch):
+    """def forward(self, batch):
         f0 = batch.get("f0")  # Use .get() instead of direct indexing
         loudness = batch.get("loudness")#
     
@@ -151,14 +131,14 @@ class Decoder(nn.Module):
         f0 = f0.unsqueeze(-1)#
         loudness = loudness.unsqueeze(-1)#
 
-        if self.config.use_z:
+        if self.use_z:
             z = batch["z"]
             latent_z = self.mlp_z(z)
 
         latent_f0 = self.mlp_f0(f0)
         latent_loudness = self.mlp_loudness(loudness)
 
-        if self.config.use_z:
+        if self.use_z:
             latent = torch.cat((latent_f0, latent_z, latent_loudness), dim=-1)
         else:
             latent = torch.cat((latent_f0, latent_loudness), dim=-1)
@@ -179,7 +159,42 @@ class Decoder(nn.Module):
 
         c = c.permute(0, 2, 1)  # to match the shape of harmonic oscillator's input.
 
-        return dict(f0=batch["f0"], a=a, c=c, H=H)
+        return dict(f0=batch["f0"], a=a, c=c, H=H)"""
+    
+    def forward(self, f0: Tensor, loudness: Tensor, z: Optional[Tensor] = None):
+           
+        if f0 is None or loudness is None:#
+            raise ValueError("Missing 'f0' or 'loudness' in batch")#
+    
+        f0 = f0.unsqueeze(-1)#
+        loudness = loudness.unsqueeze(-1)          
+
+        latent_f0 = self.mlp_f0(f0)
+        latent_loudness = self.mlp_loudness(loudness)
+
+        if self.use_z and z is not None:
+            latent_z = self.mlp_z(z)
+            latent = torch.cat((latent_f0, latent_z, latent_loudness), dim=-1)
+        else:
+            latent = torch.cat((latent_f0, latent_loudness), dim=-1)
+
+        latent, (h) = self.gru(latent)
+        latent = self.mlp_gru(latent)
+
+        amplitude = self.dense_harmonic(latent)
+
+        a = amplitude[..., 0]
+        a = Decoder.modified_sigmoid(a)
+
+        # a = torch.sigmoid(amplitude[..., 0])
+        c = F.softmax(amplitude[..., 1:], dim=-1)
+
+        H = self.dense_filter(latent)
+        H = Decoder.modified_sigmoid(H)
+
+        c = c.permute(0, 2, 1)  # to match the shape of harmonic oscillator's input.
+
+        return dict(f0=f0, a=a, c=c, H=H)
 
     @staticmethod
     def modified_sigmoid(a):

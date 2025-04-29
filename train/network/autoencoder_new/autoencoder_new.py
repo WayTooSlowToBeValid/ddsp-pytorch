@@ -1,11 +1,12 @@
 import torch
 import torch.nn as nn
-
-from components.harmonic_oscillator import HarmonicOscillator
-from components.reverb import TrainableFIRReverb
-from components.filtered_noise import FilteredNoise
-from network.autoencoder.decoder import Decoder
-from network.autoencoder.encoder import Encoder
+from torch import Tensor
+from typing import Dict
+from components.harmonic_oscillator_new import HarmonicOscillator
+from components.reverb_new import TrainableFIRReverb
+from components.filtered_noise_new import FilteredNoise
+from network.autoencoder_new.decoder_new import Decoder
+from network.autoencoder_new.encoder_new import Encoder
 
 
 class AutoEncoder(nn.Module):
@@ -37,23 +38,52 @@ class AutoEncoder(nn.Module):
         super().__init__()
         self.config = config
         self.device = device
-        self.decoder = Decoder(config, device=device)
-        self.encoder = Encoder(config, device=device)
+        self.use_z = config.use_z
+        self.use_reverb = config.use_reverb
+        hop_length  = int(config.sample_rate * config.frame_resolution)
+        self.decoder = Decoder(use_z=config.use_z,
+                               mlp_layers=config.mlp_layers,
+                               mlp_units=config.mlp_units,
+                               gru_units=config.gru_units,
+                               bidirectional = config.bidirectional,
+                               n_harmonics=config.n_harmonics,
+                               n_freq = config.n_freq,
+                               z_units=config.z_units,
+                               device=device                             
+        )   
 
-        hop_length = frame_length = int(config.sample_rate * config.frame_resolution)
+        self.encoder = Encoder( sample_rate=config.sample_rate,
+                                use_z=config.use_z,
+                                hop_length = hop_length,
+                                device=device,
+                                z_n_fft= config.n_fft,
+                                z_frame_resolution= config.frame_resolution,
+                                z_n_mels= config.n_mels,
+                                z_n_mfcc= config.n_mfcc,
+                                z_gru_units= config.gru_units,
+                                z_z_units= config.z_units,
+                                z_bidirectional= config.bidirectional,)
+
+        
 
         self.harmonic_oscillator = HarmonicOscillator(
             sr=config.sample_rate, frame_length=hop_length, device=device
         )
 
-        self.filtered_noise = FilteredNoise(frame_length=hop_length, device=device)
+        #self.filtered_noise = FilteredNoise(frame_length=hop_length, device=device)
+        
+        self.filtered_noise = FilteredNoise(
+                                frame_length=hop_length,
+                                filter_coeff_length=config.n_freq,
+                                device=device
+                            )
 
         self.reverb = TrainableFIRReverb(reverb_length=config.sample_rate * 3, device=device)
 
         self.crepe = None
         #self.config = config
 
-    def forward(self, batch, add_reverb=True):
+    def forward(self, audio: Tensor, f0: Tensor, add_reverb: bool = True) -> Dict[str, Tensor]:
         """
         z
 
@@ -62,23 +92,39 @@ class AutoEncoder(nn.Module):
                 z : (optional) residual information. torch.tensor w/ shape(B, time, z_units)
                 loudness : torch.tensor w/ shape(B, time)
         """
-        batch = self.encoder(batch)
-        latent = self.decoder(batch)
 
+        encoded = self.encoder(audio,f0)
+        #print(encoded)
+        if self.use_z:
+            z = encoded["z"]
+            latent = self.decoder(encoded["f0"], encoded["loudness"], z)
+        else:
+            latent = self.decoder(encoded["f0"], encoded["loudness"], None)
+
+        print("Checkpoint 1 --- ")
         harmonic = self.harmonic_oscillator(latent)
-        noise = self.filtered_noise(latent)
+        noise = self.filtered_noise(latent["H"])
 
-        audio = dict(
-            harmonic=harmonic, noise=noise, audio_synth=harmonic + noise[:, : harmonic.shape[-1]]
-        )
+        # Reshape noise to fut harmonic
+        noise = noise.reshape(noise.shape[0], -1)  # (batch_size, total_samples)
+        noise = noise[:, :harmonic.shape[-1]]  # Crop if necessary
 
-        if self.config.use_reverb and add_reverb:
-            audio["audio_reverb"] = self.reverb(audio)
+        print("Checkpoint 2 --- ")
+       
+        output = {
+        "harmonic": harmonic,
+        "noise": noise,
+        "audio_synth": harmonic + noise[:, :harmonic.shape[-1]],
+        "a": latent["a"],
+        "c": latent["c"],
+        }
 
-        audio["a"] = latent["a"]
-        audio["c"] = latent["c"]
+        if self.use_reverb and add_reverb:
+            output["audio_reverb"] = self.reverb(output["audio_synth"])
 
-        return audio
+        return output
+
+
 
     def get_f0(self, x, sample_rate=16000, f0_threshold=0.5):
         """
@@ -92,9 +138,9 @@ class AutoEncoder(nn.Module):
             from components.ptcrepe.ptcrepe.crepe import CREPE
 
             self.crepe = CREPE(self.config.crepe)
-            for param in self.parameters():
+            """for param in self.parameters():
                 self.device = param.device
-                break
+                break"""
             self.crepe = self.crepe.to(self.device)
         self.eval()
 
@@ -112,7 +158,7 @@ class AutoEncoder(nn.Module):
             f0 = f0[:-1]
 
         return f0
-
+    
     def reconstruction(self, x, sample_rate=16000, add_reverb=True, f0_threshold=0.5, f0=None):
         """
         input:
@@ -134,7 +180,7 @@ class AutoEncoder(nn.Module):
 
             batch = dict(f0=f0.unsqueeze(0), audio=x.to(self.device),)
 
-            recon = self.forward(batch, add_reverb=add_reverb)
+            recon = self.forward(batch["audio"], batch["f0"], add_reverb=add_reverb)
 
             # make shape consistent(removing batch dim)
             for k, v in recon.items():
